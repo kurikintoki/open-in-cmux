@@ -1,6 +1,6 @@
 # PLAN10 — `open-in-cmux`: 右にペインが無いときは、分割する前に既存の markdown ペインを使う
 
-> Status: Confirmed · Depends-on: PLAN6
+> Status: Implemented · Depends-on: PLAN6 · SHA: 52835a9
 
 Source: `02_prompts/PROMPT10.md`（`RESULT9` の要確認への回答）. Date: 2026-11-14
 
