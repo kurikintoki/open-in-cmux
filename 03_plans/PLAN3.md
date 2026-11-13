@@ -1,6 +1,6 @@
 # PLAN3 — `open-in-cmux` が開かない原因と修正方針（管理ポリシーがユーザー hook を無効化している）
 
-> Status: Draft
+> Status: Superseded · Superseded by: PLAN4
 
 Source: `02_prompts/PROMPT3.md`. Date: 2026-11-13
 
