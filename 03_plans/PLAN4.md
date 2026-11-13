@@ -1,6 +1,6 @@
 # PLAN4 — `open-in-cmux` に監視モードを追加する（管理ポリシーで hook が動かないため）
 
-> Status: Confirmed
+> Status: Implemented · SHA: 2a99bcb
 
 Source: `02_prompts/PROMPT4.md`（[[PLAN3]] の要確認への回答）. Date: 2026-11-13
 

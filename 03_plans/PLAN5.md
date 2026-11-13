@@ -1,6 +1,6 @@
 # PLAN5 — `open-in-cmux`: 右側に既にペインがあれば、分割せずそのペインにタブで開く
 
-> Status: Draft · Depends-on: PLAN4
+> Status: Superseded · Depends-on: PLAN4 · Superseded by: PLAN6
 
 Source: `02_prompts/PROMPT5.md`. Date: 2026-11-14
 
