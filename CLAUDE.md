@@ -2,10 +2,15 @@
 
 ## Overview
 The `open-in-cmux` skill: when Claude Code writes a `PLAN<n>.md` / `RESULT<n>.md` that has a
-same-numbered `PROMPT<n>.md`, a PostToolUse (Write) hook opens it in a cmux markdown viewer.
+same-numbered `PROMPT<n>.md`, it opens in a cmux markdown viewer. Two triggers: a watcher the user
+runs in a cmux terminal (`open_in_cmux.py --watch`), and a PostToolUse (Write) hook.
 Source: `.claude/skills/open-in-cmux/` (`SKILL.md`, `open_in_cmux.py`, `test_open_in_cmux.py`),
 exposed globally through the symlink `~/.claude-personal/skills/open-in-cmux`. The hook entry is
-in `~/.claude-personal/settings.json`. Spec: `03_plans/PLAN2.md`.
+in `~/.claude-personal/settings.json`. Spec: `03_plans/PLAN2.md` (hook, CLI) + `03_plans/PLAN4.md`
+(watcher).
+
+**On this machine the hook never runs:** the managed policy sets `allowManagedHooksOnly: true`, so
+user hooks aren't loaded. The watcher is the working trigger here. Don't edit the managed policy.
 
 ## How to run
 - Test: `python3 .claude/skills/open-in-cmux/test_open_in_cmux.py` (uses a fake `cmux`).
@@ -14,8 +19,10 @@ in `~/.claude-personal/settings.json`. Spec: `03_plans/PLAN2.md`.
 ## Conventions
 - **`.claude/skills/open-in-cmux/` is the live global copy.** Through the symlink and the hook,
   every edit takes effect in all projects at once, so run the tests before leaving it changed.
-- `open_in_cmux.py` must always exit 0 and print nothing on stdout: a hook failure must never
-  block Claude.
+- In hook and CLI modes `open_in_cmux.py` must always exit 0 and print nothing on stdout: a hook
+  failure must never block Claude. Watch mode may print and exit 1.
+- The watcher can't be started or tried from Claude's Bash tool (sandbox, below); live checks are
+  the user's.
 - Behavior changes start as a new PLAN in `03_plans/` (don't rewrite Confirmed / Implemented PLANs).
   Then keep `SKILL.md`, the script, the tests and `README.md` in sync.
 - Results: `04_results/RESULT<n>.md`, numbered after the prompt they answer.
