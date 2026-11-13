@@ -8,8 +8,11 @@ the file opens by itself in a cmux markdown viewer, without taking focus.
 - If there is already a pane to the right of the **base pane** (the pane of the terminal the script
   runs in), the file opens there as a tab. No new split. If the right side is itself split, a pane
   that already has a markdown tab is preferred, else the top-left one.
-- If there is no pane to the right, the base pane is split to the right. The next file then opens
-  in that pane as a tab.
+- If there is no pane to the right, the file opens as a tab in another pane of the workspace that
+  already has a markdown tab (left, above or below; the one nearest the top-left if there are
+  several). Never in the base pane itself.
+- If there is none either, the base pane is split to the right. The next file then opens in that
+  pane as a tab.
 - If the layout can't be read, the file opens in a new split.
 
 Each file adds a tab; old tabs are not closed.
@@ -48,8 +51,9 @@ At the project root, in another tab of the pane Claude runs in (or a pane in the
 python3 ~/.claude-personal/skills/open-in-cmux/open_in_cmux.py --watch
 ```
 
-The watcher's pane is the base pane. Started in the right-most pane, it finds nothing to its right
-and splits every time; to run it elsewhere, pass Claude's surface with `--surface`.
+The watcher's pane is the base pane. Started in the right-most pane, it uses an existing markdown
+pane if there is one, and otherwise splits its own pane the first time only. To use a different
+base, pass Claude's surface with `--surface`.
 
 It checks `03_plans/` and `04_results/` (or the directory itself if neither exists) once a second
 and opens each matching file that appears after it started. Files that were already there, and

@@ -458,6 +458,46 @@ class ChooseTarget(unittest.TestCase):
         self.assertEqual(self.choose(layout, panes), "pane:2")
         self.assertEqual(self.choose(layout, panes, base="pane:2"), "pane:3")
 
+    # Nothing to the right of the base pane: reuse a pane that already shows markdown (PLAN10).
+
+    def test_nothing_right_reuses_markdown_pane_below(self):
+        # Claude left; right column stacked: base (watcher) on top, markdown below.
+        layout = split("horizontal", leaf("pane:0"),
+                       split("vertical", leaf("pane:1"), leaf("pane:2")))
+        panes = [pane("pane:0"), pane("pane:1"), pane("pane:2", "markdown")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+
+    def test_nothing_right_reuses_markdown_pane_on_the_left(self):
+        layout = split("horizontal", leaf("pane:0"), leaf("pane:1"))
+        panes = [pane("pane:0", "terminal", "markdown"), pane("pane:1")]
+        self.assertEqual(self.choose(layout, panes), "pane:0")
+
+    def test_markdown_only_in_the_base_pane_is_not_reused(self):
+        layout = split("horizontal", leaf("pane:0"), leaf("pane:1"))
+        panes = [pane("pane:0"), pane("pane:1", "terminal", "markdown")]
+        self.assertIsNone(self.choose(layout, panes))
+
+    def test_nothing_right_and_no_markdown_anywhere(self):
+        layout = split("horizontal", leaf("pane:0"),
+                       split("vertical", leaf("pane:1"), leaf("pane:2")))
+        self.assertIsNone(self.choose(layout, [pane("pane:0"), pane("pane:1"), pane("pane:2")]))
+
+    def test_pane_on_the_right_wins_over_markdown_elsewhere(self):
+        # (0 | (1 over 3)) | 2: right of 1 is 2, although 3 (below) and 0 show markdown.
+        layout = split("horizontal",
+                       split("horizontal", leaf("pane:0"),
+                             split("vertical", leaf("pane:1"), leaf("pane:3"))),
+                       leaf("pane:2"))
+        panes = [pane("pane:0", "markdown"), pane("pane:1"), pane("pane:3", "markdown"), pane("pane:2")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+
+    def test_several_markdown_panes_takes_the_top_left_one(self):
+        # Base is bottom right; markdown at top left and top right.
+        layout = split("vertical", split("horizontal", leaf("pane:2"), leaf("pane:3")),
+                       split("horizontal", leaf("pane:0"), leaf("pane:1")))
+        panes = [pane("pane:2", "markdown"), pane("pane:3", "markdown"), pane("pane:0"), pane("pane:1")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+
     def test_base_not_in_layout(self):
         layout = split("horizontal", leaf("pane:1"), leaf("pane:2"))
         for bad_layout in (layout, None, {}, "x"):
@@ -577,6 +617,21 @@ class WatchPlacement(WatchBase):
         self.wait_calls(1)
         self.assertEqual(self.called(), ["markdown", "open", plan, "--workspace", "WS",
                                          "--surface", "surface:99", "--focus", "false"])
+
+    def test_watcher_top_right_reuses_markdown_pane_below(self):
+        # The layout of RESULT9: Claude left, watcher top right, markdown bottom right.
+        self.touch("02_prompts/PROMPT2.md")
+        data = tree(split("horizontal", leaf("pane:57"),
+                          split("vertical", leaf("pane:64"), leaf("pane:65"))),
+                    [pane("pane:57"), pane("pane:64"), pane("pane:65", "markdown")],
+                    caller_pane="pane:64")
+        self.start(env=self.tree_env(data))
+        plan = self.touch("03_plans/PLAN2.md")
+        self.wait_calls(1)
+        self.assertEqual(self.called(), ["open", plan, "--workspace", "WS",
+                                         "--pane", "pane:65", "--no-focus"])
+        self.assertEqual(self.proc.stdout.readline().strip(),
+                         "open: " + os.path.join("03_plans", "PLAN2.md") + " (tab in pane:65)")
 
     def test_first_split_then_tabs(self):
         # No pane on the right for the first file; the layout then has one for the second.

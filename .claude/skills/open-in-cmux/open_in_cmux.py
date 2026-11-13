@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Open a PLAN<n>.md / RESULT<n>.md in a cmux markdown viewer.
 Spec: 03_plans/PLAN2.md (hook and CLI modes) + 03_plans/PLAN4.md (watch mode)
-+ 03_plans/PLAN6.md (reuse the pane on the right).
++ 03_plans/PLAN6.md (reuse the pane on the right) + 03_plans/PLAN10.md (else reuse a markdown pane).
 
 usage: open_in_cmux.py              hook mode: reads a Claude Code PostToolUse (Write) JSON on stdin
        open_in_cmux.py <path>...    CLI mode: open these files (no PLAN/RESULT check)
@@ -12,7 +12,8 @@ Hook and watch modes open a file only if it is PLAN<n>.md / RESULT<n>.md and a P
 the same number exists.
 
 Where it opens: if there is already a pane to the right of the base pane (the pane this runs in),
-as a tab in that pane; otherwise in a new split to the right.
+as a tab in that pane; else as a tab in another pane that already shows a markdown tab; otherwise
+in a new split to the right.
 
 Hook and CLI modes do nothing outside cmux, always exit 0 and print nothing on stdout, so they can
 never block Claude. A failure is one line on stderr.
@@ -112,24 +113,25 @@ def right_subtree(node, pane_ref):
 
 
 def choose_target(layout, panes, pane_ref):
-    """The pane to open a viewer tab in: one to the right of pane_ref, or None to split instead.
+    """The pane to open a viewer tab in, or None to split pane_ref instead.
 
-    Among the panes on the right, one that already shows a markdown tab is preferred, else the
-    top-left one. Raises LayoutError if pane_ref is not in the layout.
+    1. If there are panes to the right of pane_ref: the one among them that already shows a
+       markdown tab, else the top-left one.
+    2. Otherwise: another pane anywhere in the workspace that already shows a markdown tab, the
+       one nearest the top-left first. Never pane_ref itself.
+
+    Raises LayoutError if pane_ref is not in the layout.
     """
     found, subtree = right_subtree(layout, pane_ref)
     if not found:
         raise LayoutError(f"{pane_ref} is not in the layout")
-    candidates = leaf_panes(subtree)
-    if not candidates:
-        return None
     with_markdown = {p.get("ref") for p in panes or [] if isinstance(p, dict)
                      and any(isinstance(s, dict) and s.get("type") == "markdown"
                              for s in p.get("surfaces") or [])}
-    for ref in candidates:
-        if ref in with_markdown:
-            return ref
-    return candidates[0]
+    on_the_right = leaf_panes(subtree)
+    if on_the_right:
+        return next((ref for ref in on_the_right if ref in with_markdown), on_the_right[0])
+    return next((ref for ref in leaf_panes(layout) if ref != pane_ref and ref in with_markdown), None)
 
 
 def run_cmux(cmd, capture=False):
@@ -196,9 +198,10 @@ def split_command(cmux, workspace, path, surface):
 def open_file(path, surface=None, by_surface=False):
     """Open one file in a markdown viewer. No-op outside cmux. Returns how, or None if not opened.
 
-    If there is already a pane to the right of the base pane, the file opens there as a tab.
-    Otherwise the base pane is split to the right. The base pane is the one this process runs in
-    ($CMUX_SURFACE_ID), or the one holding `surface` when by_surface is set.
+    If there is already a pane to the right of the base pane, the file opens there as a tab. If
+    not, it opens as a tab in another pane that already shows a markdown tab. Otherwise the base
+    pane is split to the right. The base pane is the one this process runs in ($CMUX_SURFACE_ID),
+    or the one holding `surface` when by_surface is set.
 
     If the layout can't be read, the file opens in a new split from `surface` (None leaves the
     choice to cmux: the focused surface).
