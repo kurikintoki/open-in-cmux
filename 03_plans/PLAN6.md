@@ -1,6 +1,6 @@
 # PLAN6 — `open-in-cmux`: 右側に既にペインがあれば、分割せずそのペインにタブで開く
 
-> Status: Confirmed · Depends-on: PLAN4
+> Status: Implemented · Depends-on: PLAN4 · SHA: 44e1787
 
 Source: `02_prompts/PROMPT6.md`（[[PLAN5]] の要確認への回答）. Date: 2026-11-14
 
