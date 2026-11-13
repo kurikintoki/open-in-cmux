@@ -1,6 +1,6 @@
 # PLAN — `/prompt` が生成した PLAN / RESULT を cmux 内に自動表示するグローバルスキル
 
-> Status: Draft
+> Status: Superseded · Superseded by: PLAN2
 
 Source: `02_prompts/PROMPT.md`. Date: 2026-11-13
 
