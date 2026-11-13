@@ -7,7 +7,8 @@ runs in a cmux terminal (`open_in_cmux.py --watch`), and a PostToolUse (Write) h
 Source: `.claude/skills/open-in-cmux/` (`SKILL.md`, `open_in_cmux.py`, `test_open_in_cmux.py`),
 exposed globally through the symlink `~/.claude-personal/skills/open-in-cmux`. The hook entry is
 in `~/.claude-personal/settings.json`. Spec: `03_plans/PLAN2.md` (hook, CLI) + `03_plans/PLAN4.md`
-(watcher).
+(watcher) + `03_plans/PLAN6.md` (where it opens: a tab in the pane already on the right, else a
+new split).
 
 **On this machine the hook never runs:** the managed policy sets `allowManagedHooksOnly: true`, so
 user hooks aren't loaded. The watcher is the working trigger here. Don't edit the managed policy.

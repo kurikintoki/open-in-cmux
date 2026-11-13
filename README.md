@@ -1,8 +1,18 @@
 # open-files-in-cmux
 
 A global Claude Code skill, `open-in-cmux`: when `/prompt` writes a `PLAN<n>.md` or `RESULT<n>.md`,
-the file opens by itself in a cmux markdown viewer, in a split to the right, with live reload and
-without taking focus.
+the file opens by itself in a cmux markdown viewer, without taking focus.
+
+## Where it opens
+
+- If there is already a pane to the right of the **base pane** (the pane of the terminal the script
+  runs in), the file opens there as a tab. No new split. If the right side is itself split, a pane
+  that already has a markdown tab is preferred, else the top-left one.
+- If there is no pane to the right, the base pane is split to the right. The next file then opens
+  in that pane as a tab.
+- If the layout can't be read, the file opens in a new split.
+
+Each file adds a tab; old tabs are not closed.
 
 ## How it works
 
@@ -32,11 +42,14 @@ ln -s "$PWD/.claude/skills/open-in-cmux" ~/.claude-personal/skills/open-in-cmux
 
 ## Watcher
 
-At the project root, in a separate cmux terminal (a split or a tab):
+At the project root, in another tab of the pane Claude runs in (or a pane in the same column):
 
 ```
 python3 ~/.claude-personal/skills/open-in-cmux/open_in_cmux.py --watch
 ```
+
+The watcher's pane is the base pane. Started in the right-most pane, it finds nothing to its right
+and splits every time; to run it elsewhere, pass Claude's surface with `--surface`.
 
 It checks `03_plans/` and `04_results/` (or the directory itself if neither exists) once a second
 and opens each matching file that appears after it started. Files that were already there, and
@@ -44,8 +57,9 @@ edits to existing files, are ignored. Stop it with Ctrl-C.
 
 - Files that Claude did not write (made by hand, or brought in by `git pull`) open too if they match.
 - Two watchers on one project open each file twice.
-- Options: `[dir]` (project root), `--interval <seconds>`, `--surface <id|ref>` (the surface to
-  split from; default: the focused one).
+- Options: `[dir]` (project root), `--interval <seconds>`, `--surface <ref>` (the surface whose
+  pane is the base, written `surface:<n>` as `cmux tree` shows it; default: the watcher's own).
+- It prints `open: <file> (tab in pane:<n>)` or `(new split)` for each file.
 - Outside cmux it prints why and exits 1.
 
 It can't be started from Claude's Bash tool: the sandbox blocks the cmux socket.

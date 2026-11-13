@@ -20,8 +20,15 @@ sys.path.insert(0, HERE)
 import open_in_cmux  # noqa: E402
 
 FAKE_CMUX = """#!/bin/sh
+if [ "$1" = tree ]; then
+  printf '%s\\n' "$@" > "$FAKE_CMUX_LOG.tree"
+  [ -n "$FAKE_CMUX_TREE_FAIL" ] && { echo "tree boom" >&2; exit 5; }
+  [ -n "$FAKE_CMUX_TREE" ] && cat "$FAKE_CMUX_TREE"
+  exit 0
+fi
 printf '%s\\n' "$@" > "$FAKE_CMUX_LOG"
-printf '%s\\n' "$3" >> "$FAKE_CMUX_LOG.calls"
+if [ "$1" = open ]; then opened="$2"; else opened="$3"; fi
+printf '%s\\n' "$opened" >> "$FAKE_CMUX_LOG.calls"
 [ -n "$FAKE_CMUX_SLEEP" ] && sleep "$FAKE_CMUX_SLEEP"
 [ -n "$FAKE_CMUX_FAIL" ] && { echo "boom" >&2; exit 7; }
 exit 0
@@ -213,7 +220,9 @@ class CliMode(Base):
         self.assertIsNone(self.called())
 
 
-class WatchMode(Base):
+class WatchBase(Base):
+    """Start and stop a watcher, and see what it asked cmux to open."""
+
     def setUp(self):
         super().setUp()
         self.proc = None
@@ -255,6 +264,8 @@ class WatchMode(Base):
     def settle(self):
         time.sleep(0.4)  # several polling intervals
 
+
+class WatchMode(WatchBase):
     def test_opens_a_file_created_after_start(self):
         self.touch("02_prompts/PROMPT2.md")
         os.mkdir(os.path.join(self.proj, "04_results"))
@@ -265,7 +276,7 @@ class WatchMode(Base):
         self.assertEqual(self.called(), ["markdown", "open", result, "--workspace", "WS",
                                          "--focus", "false"])
         self.assertEqual(self.proc.stdout.readline().strip(),
-                         "open: " + os.path.join("04_results", "RESULT2.md"))
+                         "open: " + os.path.join("04_results", "RESULT2.md") + " (new split)")
 
     def test_surface_flag_is_passed_on(self):
         self.touch("02_prompts/PROMPT2.md")
@@ -373,6 +384,216 @@ class WatchMode(Base):
         r = self.run_script(["--watch", os.path.join(self.root, "nope")])
         self.assertEqual(r.returncode, 1)
         self.assertIn("not a directory", r.stderr)
+
+
+def leaf(ref):
+    return {"pane": {"ref": ref}}
+
+
+def split(direction, first, second):
+    return {"direction": direction, "split": 0.5, "children": [first, second]}
+
+
+def pane(ref, *types):
+    n = ref.split(":")[1]
+    surfaces = [{"ref": f"surface:{n}{i}", "type": t} for i, t in enumerate(types or ("terminal",))]
+    return {"ref": ref, "selected_surface_ref": surfaces[0]["ref"], "surfaces": surfaces}
+
+
+def tree(layout, panes, caller_pane="pane:1", workspace_id="WS"):
+    return {"caller": {"pane_ref": caller_pane, "surface_ref": "surface:10"},
+            "windows": [{"workspaces": [{"id": workspace_id, "ref": "workspace:1",
+                                         "layout": layout, "panes": panes}]}]}
+
+
+class ChooseTarget(unittest.TestCase):
+    """The pure decision: which pane gets the viewer tab (None = split instead)."""
+
+    def choose(self, layout, panes, base="pane:1"):
+        return open_in_cmux.choose_target(layout, panes, base)
+
+    def test_two_panes_side_by_side(self):
+        layout = split("horizontal", leaf("pane:1"), leaf("pane:2"))
+        self.assertEqual(self.choose(layout, [pane("pane:1"), pane("pane:2")]), "pane:2")
+
+    def test_base_is_the_rightmost_pane(self):
+        layout = split("horizontal", leaf("pane:1"), leaf("pane:2"))
+        self.assertIsNone(self.choose(layout, [pane("pane:1"), pane("pane:2")], base="pane:2"))
+
+    def test_single_pane(self):
+        self.assertIsNone(self.choose(leaf("pane:1"), [pane("pane:1")]))
+
+    def test_only_stacked_panes(self):
+        layout = split("vertical", leaf("pane:1"), leaf("pane:2"))
+        self.assertIsNone(self.choose(layout, [pane("pane:1"), pane("pane:2")]))
+
+    def test_right_side_split_prefers_the_pane_with_markdown(self):
+        layout = split("horizontal", leaf("pane:1"),
+                       split("vertical", leaf("pane:2"), leaf("pane:3")))
+        panes = [pane("pane:1"), pane("pane:2", "terminal"), pane("pane:3", "terminal", "markdown")]
+        self.assertEqual(self.choose(layout, panes), "pane:3")
+
+    def test_right_side_split_without_markdown_takes_top_left(self):
+        layout = split("horizontal", leaf("pane:1"),
+                       split("vertical", leaf("pane:2"), leaf("pane:3")))
+        panes = [pane("pane:1"), pane("pane:2", "browser"), pane("pane:3")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+
+    def test_markdown_pane_on_the_left_is_not_a_target(self):
+        layout = split("horizontal", leaf("pane:0"),
+                       split("horizontal", leaf("pane:1"), leaf("pane:2")))
+        panes = [pane("pane:0", "markdown"), pane("pane:1"), pane("pane:2")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+
+    def test_base_nested_on_the_left(self):
+        # Left column is stacked (1 over 4); the right column is pane 2.
+        layout = split("horizontal", split("vertical", leaf("pane:1"), leaf("pane:4")), leaf("pane:2"))
+        panes = [pane("pane:1"), pane("pane:4"), pane("pane:2")]
+        self.assertEqual(self.choose(layout, panes, base="pane:4"), "pane:2")
+
+    def test_nearest_split_to_the_right_wins(self):
+        # ((1 | 2) | 3): right of 1 is 2, right of 2 is 3.
+        layout = split("horizontal", split("horizontal", leaf("pane:1"), leaf("pane:2")), leaf("pane:3"))
+        panes = [pane("pane:1"), pane("pane:2"), pane("pane:3", "markdown")]
+        self.assertEqual(self.choose(layout, panes), "pane:2")
+        self.assertEqual(self.choose(layout, panes, base="pane:2"), "pane:3")
+
+    def test_base_not_in_layout(self):
+        layout = split("horizontal", leaf("pane:1"), leaf("pane:2"))
+        for bad_layout in (layout, None, {}, "x"):
+            with self.assertRaises(open_in_cmux.LayoutError):
+                self.choose(bad_layout, [], base="pane:9")
+
+
+class Placement(Base):
+    """Where the viewer goes, with a fake `cmux tree --json` answer. CLI, hook and watch modes."""
+
+    SIDE_BY_SIDE = tree(split("horizontal", leaf("pane:1"), leaf("pane:2")),
+                        [pane("pane:1"), pane("pane:2", "markdown")])
+    ALONE = tree(leaf("pane:1"), [pane("pane:1", "terminal", "terminal")])
+
+    def tree_env(self, data, **extra):
+        path = os.path.join(self.root, "tree.json")
+        with open(path, "w") as f:
+            f.write(data if isinstance(data, str) else json.dumps(data))
+        return self.env(FAKE_CMUX_TREE=path, **extra)
+
+    def tree_args(self):
+        with open(self.log + ".tree") as f:
+            return f.read().splitlines()
+
+    def test_pane_on_the_right_gets_a_tab(self):
+        notes = self.touch("notes.md")
+        r = self.run_script([notes], env=self.tree_env(self.SIDE_BY_SIDE))
+        self.assertQuiet(r)
+        self.assertEqual(r.stderr, "")
+        self.assertEqual(self.tree_args(), ["tree", "--json", "--workspace", "WS"])
+        self.assertEqual(self.called(), ["open", notes, "--workspace", "WS",
+                                         "--pane", "pane:2", "--no-focus"])
+
+    def test_no_pane_on_the_right_splits_from_the_base_pane(self):
+        notes = self.touch("notes.md")
+        r = self.run_script([notes], env=self.tree_env(self.ALONE))
+        self.assertQuiet(r)
+        self.assertEqual(r.stderr, "")
+        self.assertEqual(self.called(), ["markdown", "open", notes, "--workspace", "WS",
+                                         "--surface", "surface:10", "--focus", "false"])
+
+    def test_hook_mode_uses_the_same_rule(self):
+        self.touch("02_prompts/PROMPT2.md")
+        plan = self.touch("03_plans/PLAN2.md")
+        payload = {"cwd": self.proj, "tool_input": {"file_path": plan}}
+        r = self.run_script(stdin=json.dumps(payload), env=self.tree_env(self.SIDE_BY_SIDE))
+        self.assertQuiet(r)
+        self.assertEqual(self.called(), ["open", plan, "--workspace", "WS",
+                                         "--pane", "pane:2", "--no-focus"])
+
+    def test_workspace_matched_by_ref_or_when_alone(self):
+        notes = self.touch("notes.md")
+        data = tree(split("horizontal", leaf("pane:1"), leaf("pane:2")),
+                    [pane("pane:1"), pane("pane:2")], workspace_id="SOME-OTHER-UUID")
+        self.assertQuiet(self.run_script([notes], env=self.tree_env(data)))
+        self.assertEqual(self.called()[0], "open")
+
+    def fallback(self, env, reason):
+        notes = self.touch("notes.md")
+        r = self.run_script([notes], env=env)
+        self.assertQuiet(r)
+        self.assertIn(reason, r.stderr)
+        self.assertIn("opening a new split", r.stderr)
+        self.assertEqual(self.called(), ["markdown", "open", notes, "--workspace", "WS",
+                                         "--surface", "SF", "--focus", "false"])
+
+    def test_tree_failure_falls_back_to_a_split(self):
+        self.fallback(self.env(FAKE_CMUX_TREE_FAIL="1"), "cmux exited 5: tree boom")
+
+    def test_tree_not_json_falls_back(self):
+        self.fallback(self.tree_env("not json"), "unexpected output from cmux tree")
+
+    def test_tree_wrong_shape_falls_back(self):
+        self.fallback(self.tree_env({"windows": [{"no": "workspaces"}]}), "unexpected output")
+
+    def test_tree_without_caller_falls_back(self):
+        data = dict(self.SIDE_BY_SIDE, caller=None)
+        self.fallback(self.tree_env(data), "did not report the caller's pane")
+
+    def test_caller_pane_missing_from_layout_falls_back(self):
+        data = tree(split("horizontal", leaf("pane:1"), leaf("pane:2")), [], caller_pane="pane:9")
+        self.fallback(self.tree_env(data), "pane:9 is not in the layout")
+
+
+class WatchPlacement(WatchBase):
+    THREE = tree(split("horizontal", split("horizontal", leaf("pane:1"), leaf("pane:2")), leaf("pane:3")),
+                 [pane("pane:1"), pane("pane:2"), pane("pane:3")])
+
+    def tree_env(self, data):
+        path = os.path.join(self.root, "tree.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        return self.env(FAKE_CMUX_TREE=path)
+
+    def test_tab_in_the_pane_right_of_the_watcher(self):
+        self.touch("02_prompts/PROMPT2.md")
+        self.start(env=self.tree_env(self.THREE))
+        plan = self.touch("03_plans/PLAN2.md")
+        self.assertEqual(self.wait_calls(1), [plan])
+        self.assertEqual(self.called(), ["open", plan, "--workspace", "WS",
+                                         "--pane", "pane:2", "--no-focus"])
+        self.assertEqual(self.proc.stdout.readline().strip(),
+                         "open: " + os.path.join("03_plans", "PLAN2.md") + " (tab in pane:2)")
+
+    def test_surface_flag_moves_the_base_pane(self):
+        self.touch("02_prompts/PROMPT2.md")
+        self.start(["--surface", "surface:20"], env=self.tree_env(self.THREE))
+        plan = self.touch("03_plans/PLAN2.md")
+        self.wait_calls(1)
+        self.assertEqual(self.called(), ["open", plan, "--workspace", "WS",
+                                         "--pane", "pane:3", "--no-focus"])
+
+    def test_unknown_surface_falls_back_to_a_split_from_it(self):
+        self.touch("02_prompts/PROMPT2.md")
+        self.start(["--surface", "surface:99"], env=self.tree_env(self.THREE))
+        plan = self.touch("03_plans/PLAN2.md")
+        self.wait_calls(1)
+        self.assertEqual(self.called(), ["markdown", "open", plan, "--workspace", "WS",
+                                         "--surface", "surface:99", "--focus", "false"])
+
+    def test_first_split_then_tabs(self):
+        # No pane on the right for the first file; the layout then has one for the second.
+        self.touch("02_prompts/PROMPT2.md")
+        self.touch("02_prompts/PROMPT3.md")
+        env = self.tree_env(tree(leaf("pane:1"), [pane("pane:1")]))
+        self.start(env=env)
+        plan2 = self.touch("03_plans/PLAN2.md")
+        self.wait_calls(1)
+        self.assertEqual(self.called()[:2], ["markdown", "open"])
+        with open(env["FAKE_CMUX_TREE"], "w") as f:
+            json.dump(tree(split("horizontal", leaf("pane:1"), leaf("pane:2")),
+                           [pane("pane:1"), pane("pane:2", "markdown")]), f)
+        plan3 = self.touch("03_plans/PLAN3.md")
+        self.assertEqual(self.wait_calls(2), [plan2, plan3])
+        self.assertEqual(self.called(), ["open", plan3, "--workspace", "WS",
+                                         "--pane", "pane:2", "--no-focus"])
 
 
 class Timeout(Base):
